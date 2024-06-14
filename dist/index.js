@@ -3126,7 +3126,7 @@ function run() {
                 });
             }
             catch (error) {
-                core.warning(`Upload failed after ${retryAttempts} attempts: ${error.message}`);
+                core.warning(`Upload failed ${error.message}`);
                 throw error;
             }
             yield altool.deleteAllPrivateKeys();
