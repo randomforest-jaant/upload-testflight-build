@@ -15,12 +15,10 @@ async function run(): Promise<void> {
     const apiPrivateKey: string = getInput('api-private-key')
     const appPath: string = getInput('app-path')
     const appType: string = getInput('app-type')
-    const retryAttempts: number = parseInt(
-      getInput('retry-attempts-on-timeout')
-    )
-    const retryWaitSeconds: number = parseInt(
-      getInput('retry_wait_seconds')
-    )
+    const retryAttempts: number =
+      parseInt(getInput('retry-attempts-on-timeout')) || 0
+    const retryWaitSeconds: number =
+      parseInt(getInput('retry_wait_seconds')) || 30
 
     let output = ''
     const options: ExecOptions = {}
@@ -31,19 +29,29 @@ async function run(): Promise<void> {
     }
 
     await installPrivateKey(apiKeyId, apiPrivateKey)
-    const uploadWithRetry = async (): Promise<void> => {
-      try {
-        await uploadApp(appPath, appType, apiKeyId, issuerId, options)
-      } catch (e) {
-        if (output.includes('The request timed out')) {
-          throw Error('timeout')
-        }
-
-        throw e
-      }
-    }
 
     try {
+      const uploadWithRetry = async (): Promise<void> => {
+        output = '' // Reset output for each retry attempt
+        try {
+          await uploadApp(appPath, appType, apiKeyId, issuerId, options)
+        } catch (e) {
+          // Check if upload actually succeeded despite the error
+          if (
+            output.includes('UPLOAD SUCCEEDED') ||
+            output.includes('<key>success-message</key>')
+          ) {
+            return // Upload succeeded, don't retry
+          }
+
+          if (output.includes('The request timed out')) {
+            throw Error('timeout')
+          }
+
+          throw e
+        }
+      }
+
       await retry(uploadWithRetry, {
         retries: retryAttempts,
         delay: retryWaitSeconds * 1000,
@@ -53,12 +61,13 @@ async function run(): Promise<void> {
       })
     } catch (error: unknown | Error) {
       warning(
-        `Upload failed after ${retryAttempts} attempts: ${(error as Error).message || 'An unknown error occurred.'}`
+        `Upload failed after ${retryAttempts + 1} total attempts: ${(error as Error).message || 'An unknown error occurred.'}`
       )
       throw error
+    } finally {
+      await deleteAllPrivateKeys()
     }
 
-    await deleteAllPrivateKeys()
     setOutput('altool-response', output)
   } catch (error: unknown | Error) {
     setFailed((error as Error).message || 'An unknown error occurred.')
