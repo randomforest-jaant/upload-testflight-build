@@ -3887,21 +3887,30 @@ async function run() {
             }
         };
         await (0, altool_1.installPrivateKey)(apiKeyId, apiPrivateKey);
+        let attemptCount = 0;
         try {
             const uploadWithRetry = async () => {
+                attemptCount++;
                 output = ''; // Reset output for each retry attempt
+                (0, core_1.info)(`Starting upload attempt ${attemptCount}`);
                 try {
                     await (0, altool_1.uploadApp)(appPath, appType, apiKeyId, issuerId, options);
+                    (0, core_1.info)(`Attempt ${attemptCount} completed successfully`);
                 }
                 catch (e) {
+                    (0, core_1.info)(`Attempt ${attemptCount} caught error: ${e.message}`);
+                    (0, core_1.info)(`Attempt ${attemptCount} altool output: ${output.substring(0, 500)}${output.length > 500 ? '...' : ''}`);
                     // Check if upload actually succeeded despite the error
                     if (output.includes('UPLOAD SUCCEEDED') ||
                         output.includes('<key>success-message</key>')) {
+                        (0, core_1.info)(`Attempt ${attemptCount} actually succeeded despite error - not retrying`);
                         return; // Upload succeeded, don't retry
                     }
                     if (output.includes('The request timed out')) {
+                        (0, core_1.info)(`Attempt ${attemptCount} timed out - will retry`);
                         throw Error('timeout');
                     }
+                    (0, core_1.info)(`Attempt ${attemptCount} failed with non-timeout error - will not retry`);
                     throw e;
                 }
             };
@@ -3914,6 +3923,15 @@ async function run() {
             });
         }
         catch (error) {
+            (0, core_1.info)(`All retry attempts completed. Final output: ${output.substring(0, 500)}${output.length > 500 ? '...' : ''}`);
+            // Check if upload actually succeeded despite the retry timeout
+            if (output.includes('UPLOAD SUCCEEDED') ||
+                output.includes('<key>success-message</key>')) {
+                (0, core_1.info)(`Upload actually succeeded despite retry failures`);
+                (0, core_1.setOutput)('altool-response', output);
+                return; // Upload succeeded, don't fail
+            }
+            (0, core_1.info)(`Upload truly failed after ${attemptCount} attempts`);
             (0, core_1.warning)(`Upload failed after ${retryAttempts + 1} total attempts: ${error.message || 'An unknown error occurred.'}`);
             throw error;
         }
